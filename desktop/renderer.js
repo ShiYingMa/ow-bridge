@@ -80,7 +80,7 @@ function renderDetails() {
 }
 function render() {
   const busy = pendingAction || state.actionBusy || state.configSearch?.running || state.probe?.running || state.phase !== 'ready';
-  for (const id of ['refresh', 'import', 'proxy', 'update-runtime']) $(id).disabled = !!(id === 'import' ? pendingAction || state.actionBusy || state.configSearch?.running || state.phase !== 'ready' : busy);
+  for (const id of ['refresh', 'import', 'import-codebuddy', 'proxy', 'update-runtime']) $(id).disabled = !!(['import', 'import-codebuddy'].includes(id) ? pendingAction || state.actionBusy || state.configSearch?.running || state.phase !== 'ready' : busy);
   $('restart').hidden = state.phase !== 'error';
   $('restart').disabled = !!(pendingAction || state.actionBusy);
   $('proxy').disabled = !!(pendingAction || state.actionBusy || state.configSearch?.running || state.probe?.running || !['ready', 'error'].includes(state.phase));
@@ -90,9 +90,9 @@ function render() {
   $('discovered').textContent = state.models?.length || 0;
   $('available').textContent = state.availableModels?.length || 0;
   $('pending').textContent = state.models?.filter(m => rank(m) === 1).length || 0;
-  for (const [id, title, active] of [['update-runtime', '更新 OpenCode', state.actionBusy === 'update-runtime'], ['refresh', '读取免费模型', state.actionBusy === 'refresh'], ['import', '导入 WorkBuddy', state.actionBusy === 'import']]) {
+  for (const [id, title, active] of [['update-runtime', '更新 OpenCode', state.actionBusy === 'update-runtime'], ['refresh', '读取免费模型', state.actionBusy === 'refresh'], ['import', '导入 WorkBuddy', state.actionBusy === 'import'], ['import-codebuddy', '导入 CodeBuddy', state.actionBusy === 'import-codebuddy']]) {
     $(id).replaceChildren(); if (active) $(id).append(element('span', 'spinner'));
-    $(id).append(document.createTextNode(active ? id === 'update-runtime' ? '正在更新…' : id === 'import' ? '正在导入…' : id === 'refresh' ? '正在读取…' : '正在检测…' : title));
+    $(id).append(document.createTextNode(active ? id === 'update-runtime' ? '正在更新…' : ['import', 'import-codebuddy'].includes(id) ? '正在导入…' : id === 'refresh' ? '正在读取…' : '正在检测…' : title));
   }
   const sync = state.sync;
   $('sync').textContent = (state.configSearch?.running ? 'OpenCode 正在只读查找 WorkBuddy 配置…' : state.configSearch?.candidates?.length > 1 && !state.modelsFile ? '已找到配置文件，点击导入 WorkBuddy 使用最近访问的一份。' : '') || sync?.error || (sync?.time ? `已导入 ${sync.count ?? 0} 个模型 · 模型选择变更后需点击导入 WorkBuddy 更新` : '按 OpenCode 声明导入模型；检测不影响使用');
@@ -111,11 +111,15 @@ async function run(name, value) {
       if (r.canceled) { feedback('已取消导入，配置未更改。'); return; }
       feedback(r.changed === false ? `配置已是最新，共 ${r.count} 个模型，无需重复写入。` : `导入完成，已将 ${r.count} 个可用模型导入 WorkBuddy。`);
     }
+    if (name === 'import-codebuddy') {
+      const r = response.result;
+      feedback(r.changed === false ? `CodeBuddy 配置已是最新，共 ${r.count} 个模型，无需重复写入。` : `导入完成，已将 ${r.count} 个可用模型导入 CodeBuddy。`);
+    }
   } catch (error) { feedback(error.message, true); }
   finally { pendingAction = false; render(); }
 }
 function feedback(text, error = false) { $('feedback').textContent = text; $('feedback').className = error ? 'error' : ''; $('feedback').hidden = false; }
-for (const action of ['refresh', 'import', 'restart', 'update-runtime']) $(action).onclick = () => run(action);
+for (const action of ['refresh', 'import', 'import-codebuddy', 'restart', 'update-runtime']) $(action).onclick = () => run(action);
 $('proxy').onchange = () => run('system-proxy', $('proxy').checked);
 function dismiss() { selected = null; renderModels(); renderDetails(); }
 document.addEventListener('click', e => { if (!e.target.closest('.model') && !e.target.closest('#details')) dismiss(); });

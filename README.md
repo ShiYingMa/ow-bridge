@@ -30,6 +30,7 @@
 - 首次启动自动准备 OpenCode、扫描免费模型；每次启动只读取目录，不恢复旧检测状态、不发送模型探测。可在 OW Bridge 点击每个模型旁的“检测”单独检测，也可按 OpenCode 目录声明直接导入，无需先检测。
 - macOS 保持使用 `~/.workbuddy/models.json`。Windows 自动识别默认配置、已保存位置和 WorkBuddy 配置目录环境变量。常规路径找不到时，点击导入后用已检测可用的模型，通过独立 OpenCode 只读会话搜索 `models.json`；有效候选自动记住并导入；找到多个时，选择查找校验前最后访问时间最新的一份，不再弹窗选择。也可从 Windows 托盘“自动查找 WorkBuddy 配置…”重新查找，或“选择 WorkBuddy 配置…”手动指定；首次使用请先在 WorkBuddy 保存一个自定义模型。Windows 托盘菜单“选择 WorkBuddy 配置…”可更换位置，切换时清理旧文件中的本应用条目。不会在猜测的位置新建模型配置。
 - 后续重新扫描或检测不会改 WorkBuddy；点击“导入 WorkBuddy”更新，界面会反馈结果。
+- 面板另有“导入 CodeBuddy”按钮，把当前选中模型写入 CodeBuddy 用户级 `~/.codebuddy/models.json`（OpenAI 兼容端点）。该操作独立进行，不修改 WorkBuddy 配置，也不影响既有导入与退出清理逻辑。
 - 关闭窗口继续在托盘运行；启动不修改 WorkBuddy 已有模型，点击“导入 WorkBuddy”才覆盖本应用条目；退出时删除本应用导入的模型，保留用户手动配置。
 - 图片输入、推理声明和档位、输入输出上限读取 OpenCode 目录；工具能力同样读取目录声明；模拟工具检测仅供诊断。
 - 系统代理开关支持 Mac 和 Windows 的手动 HTTP/HTTPS 代理。

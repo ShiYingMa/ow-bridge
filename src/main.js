@@ -3,6 +3,7 @@ import { createWriteStream } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { resolveModelsFile, validateModelsFile } from './workbuddy-config.js';
+import { resolveCodeBuddyModelsFile } from './codebuddy-config.js';
 import { searchConfig, windowsSearchRoots } from './config-finder.js';
 import { dataDirectory } from './platform.js';
 import { randomBytes } from 'node:crypto';
@@ -34,7 +35,7 @@ const endpoint = `http://127.0.0.1:${port}/v1`;
 let models = [], runtime, binary, stopping = false, refreshing;
 let previous = {};
 try { previous = JSON.parse(await fs.readFile(path.join(dataDir, 'status.json'), 'utf8')); } catch {}
-let state = { useSystemProxy: settings.useSystemProxy === true || (process.platform === 'win32' && settings.useSystemProxy !== false), phase: 'starting', message: '正在启动', endpoint, pid: process.pid, version: '0.2.0', opencodeVersion: null, models: [], selectedModels: settings.selectedModels || [], modelResults: {}, sync: null, availableModels: [], pendingModels: [], probe: { running: false } };
+let state = { useSystemProxy: settings.useSystemProxy === true || (process.platform === 'win32' && settings.useSystemProxy !== false), phase: 'starting', message: '正在启动', endpoint, pid: process.pid, version: '0.2.0', opencodeVersion: null, models: [], selectedModels: settings.selectedModels || [], modelResults: {}, sync: null, availableModels: [], pendingModels: [], probe: { running: false }, modelsFile: null, codebuddyModelsFile: null };
 // Serialize status writes so an older async update cannot overwrite a newer state.
 let statusWrites = Promise.resolve();
 function update(patch) {
@@ -69,7 +70,8 @@ let syncWrites = Promise.resolve();
 let modelsFile = process.platform === 'win32'
   ? await resolveModelsFile({ saved: settings.workBuddyModelsFile })
   : process.env.BUDDY_MODELS_FILE || path.join(os.homedir(), '.workbuddy/models.json');
-update({ modelsFile });
+const codebuddyModelsFile = resolveCodeBuddyModelsFile();
+update({ modelsFile, codebuddyModelsFile });
 
 function syncPublished(published = publishedModels().filter(m => (settings.selectedModels || []).includes(m.id))) {
   syncWrites = syncWrites.then(async () => {
@@ -332,6 +334,13 @@ async function importModels(selectedFile) {
   return sync;
 }
 
+// 独立于 WorkBuddy：把当前选中模型写入 CodeBuddy 用户级 models.json，不改动 WorkBuddy 配置。
+async function importCodeBuddy() {
+  if (stopping || refreshing || configSearch || state.phase !== 'ready') throw new Error('请等待读取完成后导入');
+  const published = publishedModels().filter(m => (settings.selectedModels || []).includes(m.id));
+  return syncModels(codebuddyModelsFile, published, `${endpoint}/chat/completions`, key, { allowEmpty: true, requireExisting: false });
+}
+
 async function shutdown(code = 0) {
   if (stopping) return;
   stopping = true;
@@ -377,7 +386,7 @@ try {
     },
     log: message => log.write(`${new Date().toISOString()} ${message}\n`),
   });
-  server = createServer({ server, key, selectModel, backend: { complete: (...args) => runtime.backend.complete(...args) }, getModels: publishedModels, refresh: readModels, importModels, findConfig, setSystemProxy, updateRuntime,
+  server = createServer({ server, key, selectModel, backend: { complete: (...args) => runtime.backend.complete(...args) }, getModels: publishedModels, refresh: readModels, importModels, importCodeBuddy, findConfig, setSystemProxy, updateRuntime,
     status: () => state, probe: startProbes, onResult: record, onActivity: noteActivity });
   update({ message: '正在启动隔离模型服务' });
   runtime = attachTranslator(await startBackend(binary, dataDir, log, startupProxyEnv));

@@ -60,7 +60,7 @@ async function readState() {
   } catch {}
 }
 async function action(name, value) {
-  if (!['refresh', 'probe', 'import', 'update-runtime', 'system-proxy', 'restart', 'choose-config', 'find-config', 'selection'].includes(name)) throw new Error('未知操作');
+  if (!['refresh', 'probe', 'import', 'import-codebuddy', 'update-runtime', 'system-proxy', 'restart', 'choose-config', 'find-config', 'selection'].includes(name)) throw new Error('未知操作');
   if (name === 'probe' && !value?.model) throw new Error('请选择要检测的模型');
   if (state.configSearch?.running) throw new Error('请等待配置查找完成');
   if (actionBusy) throw new Error('请等待当前操作完成');
@@ -69,7 +69,7 @@ async function action(name, value) {
     try { await stopService(); state = { phase: 'starting', message: '正在启动隔离模型服务', models: [], modelResults: {} }; await startService(); return {}; }
     finally { actionBusy = false; publish(); }
   }
-  if ((state.phase !== 'ready' && !(name === 'system-proxy' && state.phase === 'error')) || (state.probe?.running && !['import', 'selection', 'choose-config'].includes(name))) throw new Error('请等待服务启动和检测完成');
+  if ((state.phase !== 'ready' && !(name === 'system-proxy' && state.phase === 'error')) || (state.probe?.running && !['import', 'import-codebuddy', 'selection', 'choose-config'].includes(name))) throw new Error('请等待服务启动和检测完成');
   if (name === 'system-proxy' && typeof value !== 'boolean') throw new Error('代理开关必须为布尔值');
   actionBusy = name; publish();
   try {

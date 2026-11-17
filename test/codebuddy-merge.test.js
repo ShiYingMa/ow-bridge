@@ -8,9 +8,8 @@ const endpoint = 'http://127.0.0.1:41980/v1/chat/completions';
 test('codebuddy merge produces an object with models array and vendor "user"', () => {
   const merged = mergeCodeBuddyModels([], models, endpoint, 'key');
   assert.ok(Array.isArray(merged.models));
-  assert.ok(Array.isArray(merged.availableModels));
   assert.deepEqual(merged.models.map(m => m.id), ['OC · A']);
-  assert.deepEqual(merged.availableModels, ['OC · A']);
+  assert.equal(merged.availableModels, undefined, 'no whitelist is generated for a fresh document');
   const entry = merged.models[0];
   assert.equal(entry.vendor, 'user');
   assert.equal(entry.buddyBridgeOwner, OWNER);
@@ -25,7 +24,7 @@ test('codebuddy merge keeps unowned entries, drops stale owned ones, and preserv
   assert.equal(merged.other, true);
   assert.deepEqual(merged.models[0], manual);
   assert.deepEqual(merged.models.map(m => m.id), ['personal', 'OC · A']);
-  assert.deepEqual(merged.availableModels, ['personal', 'OC · A']);
+  assert.deepEqual(merged.availableModels, ['personal', 'opencode/old'], 'existing whitelist is preserved as-is');
 });
 
 test('codebuddy merge tolerates a legacy array document', () => {

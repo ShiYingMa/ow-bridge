@@ -56,7 +56,11 @@ export function mergeCodeBuddyModels(document, models, endpoint, key, { allowEmp
   const entries = models.filter(m => !conflicts.has(m.id) && !conflicts.has(clientModelID(m)))
     .map(m => buildEntry(m, endpoint, key, 'user'));
   const combined = [...kept, ...entries];
-  return { ...(Array.isArray(document) ? {} : document), models: combined, availableModels: combined.map(m => m.id) };
+  // 不主动生成 availableModels 白名单：一旦写入，后台下发的内置模型会被白名单过滤，
+  // 本地自定义条目也可能被退化快照覆盖。仅原样保留既有文档里已有的白名单键。
+  const updated = { ...(Array.isArray(document) ? {} : document), models: combined };
+  if (Array.isArray(document.availableModels)) updated.availableModels = document.availableModels;
+  return updated;
 }
 
 export async function syncModels(file, models, endpoint, key, options = {}) {

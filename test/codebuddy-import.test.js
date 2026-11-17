@@ -54,7 +54,7 @@ test('import-codebuddy writes selected models to the CodeBuddy file without touc
     const cb = JSON.parse(await fs.readFile(cbConfig, 'utf8'));
     assert.ok(Array.isArray(cb.models), 'CodeBuddy models.json must be an object with a models array');
     assert.deepEqual(cb.models.map(m => m.id), ['OC · A', 'OC · B']);
-    assert.deepEqual(cb.availableModels, ['OC · A', 'OC · B']);
+    assert.equal(cb.availableModels, undefined, 'no whitelist is generated');
     for (const entry of cb.models) {
       assert.equal(entry.buddyBridgeOwner, OWNER);
       assert.equal(entry.vendor, 'user');

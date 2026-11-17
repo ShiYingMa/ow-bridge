@@ -39,6 +39,16 @@ test('SSE sends structured calls without leaking envelope and includes usage', (
   assert.equal(events.at(-1).usage.total_tokens, 6);
   assert.ok(output.endsWith('data: [DONE]\n\n'));
 });
+test('SSE emits reasoning_content before the answer content', () => {
+  let output = '';
+  const message = { role: 'assistant', content: 'OK', reasoning_content: 'thinking out loud' };
+  sendSSE({ write: s => { output += s; }, end: () => {} }, completion(body.model, message, { input: 1, output: 1 }), false);
+  const events = output.split('\n\n').filter(x => x.startsWith('data: {')).map(x => JSON.parse(x.slice(6)));
+  const reasoningIdx = events.findIndex(e => e.choices?.[0]?.delta?.reasoning_content);
+  const contentIdx = events.findIndex(e => e.choices?.[0]?.delta?.content);
+  assert.ok(reasoningIdx >= 0);
+  assert.ok(reasoningIdx < contentIdx);
+});
 test('free discovery uses prices, not names; rejects unknown prices and paid output', () => {
   const model = cost => ({ cost, capabilities: { toolcall: true } });
   assert.deepEqual(freeModels({ all: [{ id: 'opencode', models: {
@@ -398,6 +408,25 @@ test('reasoning selection reaches OpenCode for tool and plain chat requests', as
     const model = { ...models[0], chatOnly, reasoning: true, variants: { deep: { reasoningEffort: 'high' } } };
     await backend.complete(prepare({ model: model.id, messages: body.messages, reasoning: { effort: 'high' } }, [model]));
     assert.equal(sent.variant, 'deep');
+  }
+});
+
+test('reasoning parts are forwarded as reasoning_content in chat and tool paths', async () => {
+  const backend = new Backend('http://unused', 'test');
+  backend.request = async (route) => {
+    if (route === '/session') return { id: 'reasoning-parts' };
+    if (route === '/permission') return [];
+    if (route.endsWith('/message')) return { info: {}, parts: [
+      { type: 'reasoning', text: 'Step 1: weigh the options.' },
+      { type: 'reasoning', text: 'Step 2: settle on the answer.' },
+      { type: 'text', text: '{"content":"OK","calls":[]}' },
+    ] };
+    return true;
+  };
+  for (const chatOnly of [false, true]) {
+    const model = { ...models[0], chatOnly, reasoning: true };
+    const result = await backend.complete(prepare({ model: model.id, messages: body.messages }, [model]));
+    assert.equal(result.choices[0].message.reasoning_content, 'Step 1: weigh the options.\nStep 2: settle on the answer.');
   }
 });
 

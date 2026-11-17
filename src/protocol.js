@@ -154,6 +154,7 @@ export function sendSSE(res, result, includeUsage = false, roleSent = false) {
   const send = (delta, finish_reason = null) => res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
   const { message, finish_reason } = result.choices[0];
   if (!roleSent) send({ role: 'assistant' });
+  if (message.reasoning_content) send({ reasoning_content: message.reasoning_content });
   if (message.content) send({ content: message.content });
   if (message.tool_calls) send({ tool_calls: message.tool_calls.map((t, index) => ({ index, ...t })) });
   send({}, finish_reason);

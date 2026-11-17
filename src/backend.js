@@ -344,6 +344,10 @@ export class Backend {
         const structuredPart = (response.parts || []).find(p => p.type === 'tool' && p.tool === 'StructuredOutput' && p.state?.status === 'completed' && p.state?.input);
         const envelope = response.info?.structured ?? structuredPart?.state?.input;
         const text = envelope !== undefined ? JSON.stringify(envelope) : (response.parts || []).filter(p => p.type === 'text').map(p => p.text).join('');
+        // Reasoning parts carry the model's chain of thought separately from the answer envelope.
+        // Forward them as reasoning_content so OpenAI-compatible clients can render the thinking block.
+        const reasoningText = (response.parts || []).filter(p => p.type === 'reasoning')
+          .map(p => (typeof p.text === 'string' ? p.text : '')).filter(Boolean).join('\n');
         let message;
         try {
           // A reply cut off by the output limit is a failure the model can fix once it is told.
@@ -358,6 +362,7 @@ export class Backend {
               : '模型没有返回信封：structured、已完成的 StructuredOutput 调用、文本 part 三者都为空', 502, 'invalid_model_output');
           }
           message = request.chatOnly ? { role: 'assistant', content: text } : decode(text, request);
+          if (reasoningText) message.reasoning_content = reasoningText;
         }
         catch (error) {
           // One correction, one translation, one explicit retry: bounded, and only ever on a path

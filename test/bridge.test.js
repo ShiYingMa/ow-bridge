@@ -126,6 +126,20 @@ test('HTTP authenticates local clients, rejects origins, supports SSE and model 
     assert.ok((await response.text()).includes('[DONE]')); assert.equal(selected, body.model);
   } finally { server.closeAllConnections(); server.close(); }
 });
+test('benchmark route invokes the benchmark callback', async () => {
+  let called = false;
+  const server = createServer({ key: 'test', getModels: () => models, status: () => ({ phase: 'ready' }),
+    benchmark: () => { called = true; return { started: true, thresholdMs: 5000 }; } });
+  const base = await listen(server);
+  const headers = { Authorization: 'Bearer test', 'Content-Type': 'application/json' };
+  try {
+    const response = await fetch(base + '/admin/benchmark', { method: 'POST', headers, body: '{}' });
+    const result = await response.json();
+    assert.equal(response.status, 202);
+    assert.equal(called, true);
+    assert.equal(result.thresholdMs, 5000);
+  } finally { server.closeAllConnections(); server.close(); }
+});
 
 test('SSE starts on real upstream content while buffering the answer and tools', { timeout: 5000 }, async () => {
   let activity, finish;

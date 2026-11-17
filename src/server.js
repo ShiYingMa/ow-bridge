@@ -18,7 +18,7 @@ async function readBody(req) {
 }
 function json(res, status, data) { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); }
 
-export function createServer({ server = http.createServer(), key, selectModel, backend, getModels, refresh, importModels, importCodeBuddy, findConfig, setSystemProxy, updateRuntime, probe, status, onResult = () => {}, onActivity }) {
+export function createServer({ server = http.createServer(), key, selectModel, backend, getModels, refresh, importModels, importCodeBuddy, findConfig, setSystemProxy, updateRuntime, probe, benchmark, status, onResult = () => {}, onActivity }) {
   const active = new Set();
   server.removeAllListeners('request');
   server.on('request', async (req, res) => {
@@ -41,6 +41,7 @@ export function createServer({ server = http.createServer(), key, selectModel, b
         const body = await readBody(req);
         return json(res, 202, probe(body.model, { manual: true }));
       }
+      if (req.method === 'POST' && route === '/admin/benchmark') return json(res, 202, benchmark());
       if (req.method === 'POST' && route === '/admin/system-proxy') return json(res, 200, await setSystemProxy((await readBody(req)).enabled));
       if (req.method === 'POST' && route === '/admin/find-config') return json(res, 200, await findConfig());
       if (req.method === 'POST' && route === '/admin/selection') {

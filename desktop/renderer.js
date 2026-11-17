@@ -19,13 +19,26 @@ function timing(id) {
   const duration = r.durationMs < 1000 ? `${r.durationMs} ms` : `${(r.durationMs / 1000).toFixed(1)} 秒`;
   return `最近${r.source === 'probe' ? '检测' : '调用'} · ${r.ok ? '响应' : '失败'}耗时 ${duration}`;
 }
+function bench(id) { return state.benchmark?.results?.[id]; }
+function benchWaiting(id) { return state.benchmark?.running && (state.benchmark.current === id || state.benchmark?.pending?.includes(id)); }
+function benchText(id) {
+  const b = bench(id); if (!b) return null;
+  if (!b.ok) return '测速失败' + (b.error ? ` · ${b.error}` : '');
+  const d = b.durationMs < 1000 ? `${b.durationMs} ms` : `${(b.durationMs / 1000).toFixed(1)} 秒`;
+  return `测速 · ${d}${b.slow ? '（超 5 秒）' : ''}`;
+}
 function renderModels() {
   const signature = JSON.stringify([state.models, state.modelResults, state.probe, state.pendingModels, state.availableModels, state.activity, state.selectedModels, state.actionBusy, pendingAction, selected]);
   if (signature === lastModels) return; lastModels = signature;
   const scroll = $('models').scrollTop;
   const focused = document.activeElement?.dataset?.model;
   $('models').replaceChildren();
-  const models = [...(state.models || [])].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  const speed = id => { const b = bench(id); return b && b.ok && !b.slow ? b.durationMs : Number.MAX_SAFE_INTEGER; };
+  const models = [...(state.models || [])].sort((a, b) => {
+    const ba = bench(a.id), bb = bench(b.id);
+    if (ba || bb) return speed(a.id) - speed(b.id) || a.name.localeCompare(b.name);
+    return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+  });
   for (const model of models) {
     const row = element('div', 'model' + (selected === model.id ? ' selected' : '')); row.dataset.model = model.id;
     const choose = element('input', 'model-check'); choose.type = 'checkbox';
@@ -38,11 +51,14 @@ function renderModels() {
     details.setAttribute('aria-label', `查看 OC · ${model.name} 详情`);
     details.setAttribute('aria-expanded', String(selected === model.id));
     const icon = element('span', 'model-icon'); icon.setAttribute('aria-hidden', 'true');
-    icon.append(waiting(model.id) ? element('span', 'spinner') : element('span', '', '◇'));
-    const info = element('div', 'model-info'); info.append(element('div', 'model-name', `OC · ${model.name}`), element('div', 'duration', timing(model.id)));
+    icon.append(waiting(model.id) || benchWaiting(model.id) ? element('span', 'spinner') : element('span', '', '◇'));
+    const info = element('div', 'model-info'); info.append(element('div', 'model-name', `OC · ${model.name}`), element('div', 'duration', benchText(model.id) || timing(model.id)));
     const badges = element('div', 'badges');
     if (model.reasoning) badges.append(element('span', 'badge reasoning', '推理'));
     if (model.images) badges.append(element('span', 'badge images', '图片'));
+    const b = bench(model.id);
+    if (benchWaiting(model.id)) badges.append(element('span', 'badge waiting', '测速中'));
+    else if (b) badges.append(element('span', b.slow ? 'badge unavailable' : 'badge', b.ok ? (b.slow ? '慢' : '快') : '测速失败'));
     const status = label(model); badges.append(element('span', 'badge ' + (rank(model) === 2 ? 'unavailable' : rank(model) === 1 ? 'waiting' : ''), status));
     details.append(icon, info, badges); row.append(choose, details); details.onclick = () => { selected = selected === model.id ? null : model.id; renderModels(); renderDetails(); };
     const probe = element('button', 'model-probe');
@@ -79,8 +95,8 @@ function renderDetails() {
   add('最近更新：' + (r.time ? new Date(r.time).toLocaleString() : '尚未检测'));
 }
 function render() {
-  const busy = pendingAction || state.actionBusy || state.configSearch?.running || state.probe?.running || state.phase !== 'ready';
-  for (const id of ['refresh', 'import', 'import-codebuddy', 'proxy', 'update-runtime']) $(id).disabled = !!(['import', 'import-codebuddy'].includes(id) ? pendingAction || state.actionBusy || state.configSearch?.running || state.phase !== 'ready' : busy);
+  const busy = pendingAction || state.actionBusy || state.configSearch?.running || state.probe?.running || state.benchmark?.running || state.phase !== 'ready';
+  for (const id of ['refresh', 'benchmark', 'import', 'import-codebuddy', 'proxy', 'update-runtime']) $(id).disabled = !!(['import', 'import-codebuddy'].includes(id) ? pendingAction || state.actionBusy || state.configSearch?.running || state.phase !== 'ready' : busy);
   $('restart').hidden = state.phase !== 'error';
   $('restart').disabled = !!(pendingAction || state.actionBusy);
   $('proxy').disabled = !!(pendingAction || state.actionBusy || state.configSearch?.running || state.probe?.running || !['ready', 'error'].includes(state.phase));
@@ -90,9 +106,9 @@ function render() {
   $('discovered').textContent = state.models?.length || 0;
   $('available').textContent = state.availableModels?.length || 0;
   $('pending').textContent = state.models?.filter(m => rank(m) === 1).length || 0;
-  for (const [id, title, active] of [['update-runtime', '更新 OpenCode', state.actionBusy === 'update-runtime'], ['refresh', '读取免费模型', state.actionBusy === 'refresh'], ['import', '导入 WorkBuddy', state.actionBusy === 'import'], ['import-codebuddy', '导入 CodeBuddy', state.actionBusy === 'import-codebuddy']]) {
+  for (const [id, title, active] of [['update-runtime', '更新 OpenCode', state.actionBusy === 'update-runtime'], ['refresh', '读取免费模型', state.actionBusy === 'refresh'], ['benchmark', '一键测速', state.actionBusy === 'benchmark' || state.benchmark?.running], ['import', '导入 WorkBuddy', state.actionBusy === 'import'], ['import-codebuddy', '导入 CodeBuddy', state.actionBusy === 'import-codebuddy']]) {
     $(id).replaceChildren(); if (active) $(id).append(element('span', 'spinner'));
-    $(id).append(document.createTextNode(active ? id === 'update-runtime' ? '正在更新…' : ['import', 'import-codebuddy'].includes(id) ? '正在导入…' : id === 'refresh' ? '正在读取…' : '正在检测…' : title));
+    $(id).append(document.createTextNode(active ? id === 'update-runtime' ? '正在更新…' : ['import', 'import-codebuddy'].includes(id) ? '正在导入…' : id === 'refresh' ? '正在读取…' : id === 'benchmark' ? '正在测速…' : '正在检测…' : title));
   }
   const sync = state.sync;
   $('sync').textContent = (state.configSearch?.running ? 'OpenCode 正在只读查找 WorkBuddy 配置…' : state.configSearch?.candidates?.length > 1 && !state.modelsFile ? '已找到配置文件，点击导入 WorkBuddy 使用最近访问的一份。' : '') || sync?.error || (sync?.time ? `已导入 ${sync.count ?? 0} 个模型 · 模型选择变更后需点击导入 WorkBuddy 更新` : '按 OpenCode 声明导入模型；检测不影响使用');
@@ -115,11 +131,15 @@ async function run(name, value) {
       const r = response.result;
       feedback(r.changed === false ? `CodeBuddy 配置已是最新，共 ${r.count} 个模型，无需重复写入。` : `导入完成，已将 ${r.count} 个可用模型导入 CodeBuddy。`);
     }
+    if (name === 'benchmark') {
+      const r = response.result;
+      feedback(r.started ? '测速已开始，逐个模型测试，超过 5 秒将标记为慢并排在后面。' : (r.message || '测速未开始'));
+    }
   } catch (error) { feedback(error.message, true); }
   finally { pendingAction = false; render(); }
 }
 function feedback(text, error = false) { $('feedback').textContent = text; $('feedback').className = error ? 'error' : ''; $('feedback').hidden = false; }
-for (const action of ['refresh', 'import', 'import-codebuddy', 'restart', 'update-runtime']) $(action).onclick = () => run(action);
+for (const action of ['refresh', 'benchmark', 'import', 'import-codebuddy', 'restart', 'update-runtime']) $(action).onclick = () => run(action);
 $('proxy').onchange = () => run('system-proxy', $('proxy').checked);
 function dismiss() { selected = null; renderModels(); renderDetails(); }
 document.addEventListener('click', e => { if (!e.target.closest('.model') && !e.target.closest('#details')) dismiss(); });

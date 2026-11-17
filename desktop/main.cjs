@@ -60,7 +60,7 @@ async function readState() {
   } catch {}
 }
 async function action(name, value) {
-  if (!['refresh', 'probe', 'import', 'import-codebuddy', 'update-runtime', 'system-proxy', 'restart', 'choose-config', 'find-config', 'selection'].includes(name)) throw new Error('未知操作');
+  if (!['refresh', 'probe', 'benchmark', 'import', 'import-codebuddy', 'update-runtime', 'system-proxy', 'restart', 'choose-config', 'find-config', 'selection'].includes(name)) throw new Error('未知操作');
   if (name === 'probe' && !value?.model) throw new Error('请选择要检测的模型');
   if (state.configSearch?.running) throw new Error('请等待配置查找完成');
   if (actionBusy) throw new Error('请等待当前操作完成');

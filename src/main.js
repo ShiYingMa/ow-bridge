@@ -7,6 +7,7 @@ import { resolveCodeBuddyModelsFile } from './codebuddy-config.js';
 import { searchConfig, windowsSearchRoots } from './config-finder.js';
 import { dataDirectory } from './platform.js';
 import { randomBytes } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { findRuntime, startBackend } from './runtime.js';
 import { createServer } from './server.js';
 import { listenService } from './service-instance.js';
@@ -35,7 +36,7 @@ const endpoint = `http://127.0.0.1:${port}/v1`;
 let models = [], runtime, binary, stopping = false, refreshing;
 let previous = {};
 try { previous = JSON.parse(await fs.readFile(path.join(dataDir, 'status.json'), 'utf8')); } catch {}
-let state = { useSystemProxy: settings.useSystemProxy === true || (process.platform === 'win32' && settings.useSystemProxy !== false), phase: 'starting', message: '正在启动', endpoint, pid: process.pid, version: '0.2.0', opencodeVersion: null, models: [], selectedModels: settings.selectedModels || [], modelResults: {}, sync: null, availableModels: [], pendingModels: [], probe: { running: false }, modelsFile: null, codebuddyModelsFile: null };
+let state = { useSystemProxy: settings.useSystemProxy === true || (process.platform === 'win32' && settings.useSystemProxy !== false), phase: 'starting', message: '正在启动', endpoint, pid: process.pid, version: '0.2.0', opencodeVersion: null, models: [], selectedModels: settings.selectedModels || [], modelResults: {}, sync: null, availableModels: [], pendingModels: [], probe: { running: false }, benchmark: { running: false, current: null, pending: [], results: {} }, modelsFile: null, codebuddyModelsFile: null };
 // Serialize status writes so an older async update cannot overwrite a newer state.
 let statusWrites = Promise.resolve();
 function update(patch) {
@@ -139,8 +140,13 @@ function noteActivity(progress) {
 }
 let probing = false, probeTask;
 const probeAbort = new AbortController();
+// Benchmark measures plain reply latency only (no tool-call judging). Anything slower than
+// this deadline is abandoned and flagged slow, so the panel can point users at the fast models.
+const BENCH_TIMEOUT = 5000;
+let benchmarking = false;
+const benchmarkAbort = new AbortController();
 function startProbes(modelID, { manual = false, force = false } = {}) {
-  if (stopping || refreshing || configSearch) throw new Error('请等待模型读取或配置查找完成');
+  if (stopping || refreshing || configSearch || benchmarking) throw new Error('请等待模型读取、测速或配置查找完成');
   if (probing) return { started: false, message: '检测正在进行' };
   const candidates = modelID ? models.filter(m => m.id === modelID) : models;
   if (modelID && !candidates.length) throw new Error('模型不在当前目录中');
@@ -203,6 +209,51 @@ function startProbes(modelID, { manual = false, force = false } = {}) {
   return { started: true };
 }
 
+// Lightweight speed test: one plain-text request per model, no tool-call judging. Results are
+// kept in a separate benchmark map so they never overwrite capability probe verdicts or the
+// selected model set. A model that does not answer within BENCH_TIMEOUT is aborted and flagged slow.
+function startBenchmark() {
+  if (stopping || refreshing || probing || configSearch) throw new Error('请等待读取、检测或配置查找完成');
+  if (benchmarking) return { started: false, message: '测速正在进行' };
+  const candidates = usableModels();
+  if (!candidates.length) return { started: false, message: '当前没有可测速的模型' };
+  benchmarking = true;
+  const pending = candidates.map(m => m.id);
+  update({ benchmark: { running: true, current: null, pending, results: {} }, message: '正在测速模型…' });
+  console.log(`${new Date().toISOString()} Benchmark started, ${candidates.length} models, timeout ${BENCH_TIMEOUT}ms`);
+  (async () => {
+    const results = {};
+    try {
+      for (const model of candidates) {
+        if (benchmarkAbort.signal.aborted) break;
+        update({ benchmark: { running: true, current: model.id, pending: [...pending], results } });
+        const started = performance.now();
+        const deadline = AbortSignal.any([benchmarkAbort.signal, AbortSignal.timeout(BENCH_TIMEOUT)]);
+        let ok = false, error;
+        try {
+          const chatModel = { ...model, chatOnly: model.toolcall === false };
+          await runtime.backend.complete(
+            prepare({ model: model.id, messages: [{ role: 'user', content: 'Reply only OK.' }] }, [chatModel]),
+            deadline, { activity: noteActivity, benchmark: true, model: model.id });
+          ok = true;
+        } catch (cause) { error = cause?.message || String(cause); }
+        const durationMs = Math.round(performance.now() - started);
+        results[model.id] = { ok, durationMs, slow: !ok || durationMs > BENCH_TIMEOUT, ...(error ? { error } : {}) };
+        pending.shift();
+        update({ benchmark: { running: true, current: null, pending: [...pending], results } });
+        if (pending.length) await delay(300, undefined, { signal: benchmarkAbort.signal }).catch(() => {});
+      }
+    } finally {
+      benchmarking = false;
+      const done = Object.values(results);
+      const fast = done.filter(r => r.ok && !r.slow).length;
+      update({ benchmark: { running: false, current: null, pending: [], results }, message: `运行中 · ${models.length} 个免费模型` });
+      console.log(`${new Date().toISOString()} Benchmark done: ${fast}/${done.length} within ${BENCH_TIMEOUT}ms`);
+    }
+  })().catch(e => console.error('Benchmark failed:', e.message));
+  return { started: true, thresholdMs: BENCH_TIMEOUT };
+}
+
 function watchRuntime(current) {
   update({ opencodeVersion: current.version });
   current.child.on('exit', () => {
@@ -215,7 +266,7 @@ function watchRuntime(current) {
 
 async function refresh(restartRuntime = false, useSystemProxy = state.useSystemProxy) {
   if (refreshing) return refreshing;
-  if (probing || stopping || configSearch) throw new Error('请等待检测或配置查找完成');
+  if (probing || benchmarking || stopping || configSearch) throw new Error('请等待检测、测速或配置查找完成');
   const proxyEnv = await systemProxyEnvironment(useSystemProxy);
   validated.clear();
   models = [];
@@ -345,6 +396,7 @@ async function shutdown(code = 0) {
   if (stopping) return;
   stopping = true;
   probeAbort.abort();
+  benchmarkAbort.abort();
   server?.abortAll?.(); server?.closeAllConnections();
   server?.removeAllListeners('request');
   server?.on('request', (_req, res) => { res.writeHead(503); res.end(); });
@@ -387,7 +439,7 @@ try {
     log: message => log.write(`${new Date().toISOString()} ${message}\n`),
   });
   server = createServer({ server, key, selectModel, backend: { complete: (...args) => runtime.backend.complete(...args) }, getModels: publishedModels, refresh: readModels, importModels, importCodeBuddy, findConfig, setSystemProxy, updateRuntime,
-    status: () => state, probe: startProbes, onResult: record, onActivity: noteActivity });
+    status: () => state, probe: startProbes, benchmark: startBenchmark, onResult: record, onActivity: noteActivity });
   update({ message: '正在启动隔离模型服务' });
   runtime = attachTranslator(await startBackend(binary, dataDir, log, startupProxyEnv));
   watchRuntime(runtime);

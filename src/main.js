@@ -14,7 +14,7 @@ import { systemProxyEnvironment } from './system-proxy.js';
 import { prepare, BridgeError } from './protocol.js';
 import { PROBE_TIMEOUT, probeBody, probeModel, probeFailure, formatUnsupported } from './probe.js';
 import { modelResult, withRequestMeta } from './model-status.js';
-import { atomicWrite, syncModels } from './sync.js';
+import { atomicWrite, syncModels, mergeCodeBuddyModels } from './sync.js';
 import { cachedProbe, modelFingerprint, runProbeQueue } from './probe-policy.js';
 
 const dataDir = process.env.BUDDY_DATA_DIR || dataDirectory();
@@ -338,7 +338,7 @@ async function importModels(selectedFile) {
 async function importCodeBuddy() {
   if (stopping || refreshing || configSearch || state.phase !== 'ready') throw new Error('请等待读取完成后导入');
   const published = publishedModels().filter(m => (settings.selectedModels || []).includes(m.id));
-  return syncModels(codebuddyModelsFile, published, `${endpoint}/chat/completions`, key, { allowEmpty: true, requireExisting: false });
+  return syncModels(codebuddyModelsFile, published, `${endpoint}/chat/completions`, key, { allowEmpty: true, requireExisting: false, merge: mergeCodeBuddyModels });
 }
 
 async function shutdown(code = 0) {

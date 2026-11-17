@@ -52,16 +52,19 @@ test('import-codebuddy writes selected models to the CodeBuddy file without touc
     assert.equal(result.changed, true);
     assert.equal(result.count, 2);
     const cb = JSON.parse(await fs.readFile(cbConfig, 'utf8'));
-    assert.deepEqual(cb.map(m => m.id), ['OC · A', 'OC · B']);
-    for (const entry of cb) {
+    assert.ok(Array.isArray(cb.models), 'CodeBuddy models.json must be an object with a models array');
+    assert.deepEqual(cb.models.map(m => m.id), ['OC · A', 'OC · B']);
+    assert.deepEqual(cb.availableModels, ['OC · A', 'OC · B']);
+    for (const entry of cb.models) {
       assert.equal(entry.buddyBridgeOwner, OWNER);
+      assert.equal(entry.vendor, 'user');
       assert.equal(entry.apiKey, key);
       assert.ok(entry.url.endsWith('/v1/chat/completions'), entry.url);
     }
     assert.deepEqual(JSON.parse(await fs.readFile(wbConfig, 'utf8')), [manual], 'CodeBuddy import must not modify the WorkBuddy configuration');
     child.send('shutdown'); await exited;
     assert.deepEqual(JSON.parse(await fs.readFile(wbConfig, 'utf8')), [manual], 'Exit preserves WorkBuddy manual entry');
-    assert.deepEqual(JSON.parse(await fs.readFile(cbConfig, 'utf8')).map(m => m.id), ['OC · A', 'OC · B'], 'CodeBuddy entries are kept after exit');
+    assert.deepEqual(JSON.parse(await fs.readFile(cbConfig, 'utf8')).models.map(m => m.id), ['OC · A', 'OC · B'], 'CodeBuddy entries are kept after exit');
   } finally {
     if (child.exitCode === null) { child.send('shutdown'); await exited; }
     await fs.rm(root, { recursive: true, force: true });
